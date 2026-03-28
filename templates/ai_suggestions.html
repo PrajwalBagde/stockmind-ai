@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+{% block title %}AI Stock Suggestions{% endblock %}
+
+{% block content %}
+<section class="page-section">
+    <div class="container">
+        <div class="section-header">
+            <h1 class="section-title">
+                <i class="fas fa-robot"></i> AI Stock Suggestions
+            </h1>
+            <button class="refresh-btn" id="refresh-ai" title="Refresh analysis">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+        <p class="section-subtitle">AI-powered analysis of top Indian stocks using momentum, trend &amp; volatility signals</p>
+
+        <div class="ai-disclaimer">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span>These are AI-generated suggestions based on technical analysis. Not financial advice. Always do your own research or consult a SEBI registered advisor.</span>
+        </div>
+
+        <div class="ai-grid" id="ai-grid">
+            <div class="news-skeleton">
+                <div class="loader"><div class="loader-dot"></div><div class="loader-dot"></div><div class="loader-dot"></div></div>
+                <span>Running AI analysis on Indian stocks...</span>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', loadSuggestions);
+document.getElementById('refresh-ai')?.addEventListener('click', loadSuggestions);
+
+function loadSuggestions() {
+    const btn = document.getElementById('refresh-ai');
+    if (btn) btn.classList.add('spinning');
+    const grid = document.getElementById('ai-grid');
+
+    fetch('/api/ai-suggestions')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.length) {
+                grid.innerHTML = '<div class="empty-state"><i class="fas fa-robot"></i><p>Unable to generate suggestions right now.</p></div>';
+                return;
+            }
+            grid.innerHTML = data.map((s, i) => {
+                const signalClass = s.signal === 'BUY' ? 'signal-buy' : s.signal === 'SELL' ? 'signal-sell' : 'signal-hold';
+                const signalIcon = s.signal === 'BUY' ? 'arrow-up' : s.signal === 'SELL' ? 'arrow-down' : 'minus';
+                const retClass = s.monthly_return >= 0 ? 'positive' : 'negative';
+                return `
+                <div class="ai-card" style="animation-delay: ${i * 0.06}s">
+                    <div class="ai-card-header">
+                        <div>
+                            <h3 class="ai-stock-name">${s.name}</h3>
+                            <span class="ai-stock-symbol">${s.symbol.replace('.NS','')}</span>
+                        </div>
+                        <div class="ai-signal ${signalClass}">
+                            <i class="fas fa-${signalIcon}"></i>
+                            ${s.signal}
+                        </div>
+                    </div>
+                    <div class="ai-price">₹${s.price.toLocaleString('en-IN')}</div>
+                    <div class="ai-metrics">
+                        <div class="ai-metric">
+                            <span class="metric-label">AI Score</span>
+                            <div class="score-bar">
+                                <div class="score-fill" style="width:${s.score}%; background: ${s.score >= 70 ? '#10b981' : s.score >= 50 ? '#f59e0b' : '#ef4444'}"></div>
+                            </div>
+                            <span class="metric-value">${s.score}/100</span>
+                        </div>
+                        <div class="ai-metric">
+                            <span class="metric-label">1M Return</span>
+                            <span class="metric-value ${retClass}">${s.monthly_return >= 0 ? '+' : ''}${s.monthly_return}%</span>
+                        </div>
+                        <div class="ai-metric">
+                            <span class="metric-label">Volatility</span>
+                            <span class="metric-value">${s.volatility}%</span>
+                        </div>
+                        <div class="ai-metric">
+                            <span class="metric-label">SMA 5</span>
+                            <span class="metric-value">₹${s.sma_5.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div class="ai-metric">
+                            <span class="metric-label">SMA 20</span>
+                            <span class="metric-value">₹${s.sma_20.toLocaleString('en-IN')}</span>
+                        </div>
+                    </div>
+                    <div class="ai-reason">
+                        <i class="fas fa-lightbulb"></i>
+                        ${s.reason}
+                    </div>
+                </div>
+                `;
+            }).join('');
+            if (btn) btn.classList.remove('spinning');
+        })
+        .catch(() => {
+            grid.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Failed to load AI suggestions.</p></div>';
+            if (btn) btn.classList.remove('spinning');
+        });
+}
+</script>
+{% endblock %}

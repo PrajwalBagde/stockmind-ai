@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Indian Stock Market Dashboard - Track NIFTY 50, SENSEX, NSE/BSE stocks, market news, and AI-powered insights">
+    <title>{% block title %}StockPulse India{% endblock %} | Indian Market Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block head %}{% endblock %}
+    {# ── JWT: expose access token to frontend JS via meta tag ── #}
+    {% if session.get('jwt_token') %}
+    <meta name="jwt-token" content="{{ session.get('jwt_token', '') }}">
+    {% endif %}
+    <meta name="user-logged-in" content="{{ 'true' if session.get('user_id') else 'false' }}">
+    <!-- Theme: apply immediately to prevent flash. Default = dark -->
+    <script>
+    (function(){
+        try {
+            var t = localStorage.getItem('sm_theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+        } catch(e) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+    })();
+    </script>
+</head>
+<body>
+    <!-- Animated Background -->
+    <div class="bg-grid"></div>
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+
+    <!-- Navigation -->
+    <nav class="navbar" id="navbar">
+        <div class="nav-container">
+            <a href="{{ url_for('dashboard') }}" class="nav-logo">
+                <div class="logo-icon">
+                    <i class="fas fa-chart-line"></i>
+                </div>
+                <span class="logo-text">Stock<span class="logo-accent">Mind</span></span>
+                <span class="logo-badge">AI</span>
+            </a>
+
+            <div class="nav-links" id="nav-links">
+                <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
+                    <i class="fas fa-tachometer-alt"></i> Dashboard
+                </a>
+                <a href="{{ url_for('news') }}" class="nav-link {% if request.endpoint == 'news' %}active{% endif %}">
+                    <i class="fas fa-newspaper"></i> News
+                </a>
+                <a href="{{ url_for('ai_suggestions') }}" class="nav-link {% if request.endpoint == 'ai_suggestions' %}active{% endif %}">
+                    <i class="fas fa-robot"></i> AI Picks
+                </a>
+                <a href="{{ url_for('mutual_funds') }}" class="nav-link {% if request.endpoint == 'mutual_funds' %}active{% endif %}">
+                    <i class="fas fa-chart-pie"></i> Mutual Funds
+                </a>
+                <a href="{{ url_for('sip_calculator') }}" class="nav-link {% if request.endpoint == 'sip_calculator' %}active{% endif %}">
+                    <i class="fas fa-calculator"></i> SIP Calc
+                </a>
+                {% if session.get('user_id') %}
+                <a href="{{ url_for('watchlist') }}" class="nav-link {% if request.endpoint == 'watchlist' %}active{% endif %}">
+                    <i class="fas fa-star"></i> Watchlist
+                </a>
+                {% endif %}
+            </div>
+
+            <div class="nav-actions">
+                {% if session.get('user_id') %}
+                <div class="user-menu">
+                    <button class="user-btn" id="user-menu-btn">
+                        <div class="user-avatar">{{ session.get('user_name', 'U')[0] }}</div>
+                        <span class="user-name">{{ session.get('user_name', 'User') }}</span>
+                        <i class="fas fa-chevron-down"></i>
+                    </button>
+                    <div class="user-dropdown" id="user-dropdown">
+                        <div class="dropdown-header">
+                            <span class="dropdown-email">{{ session.get('user_email', '') }}</span>
+                        </div>
+                        <a href="{{ url_for('watchlist') }}" class="dropdown-item">
+                            <i class="fas fa-star"></i> My Watchlist
+                        </a>
+                        <a href="{{ url_for('logout') }}" class="dropdown-item logout-item">
+                            <i class="fas fa-sign-out-alt"></i> Logout
+                        </a>
+                    </div>
+                </div>
+                {% else %}
+                <a href="{{ url_for('login') }}" class="btn btn-outline btn-sm">
+                    <i class="fas fa-sign-in-alt"></i> Login
+                </a>
+                <a href="{{ url_for('signup') }}" class="btn btn-primary btn-sm">
+                    <i class="fas fa-user-plus"></i> Sign Up
+                </a>
+                {% endif %}
+                <!-- Dark / Light Mode Toggle -->
+                <button class="theme-toggle" id="theme-toggle" title="Toggle dark/light mode" aria-label="Toggle theme">
+                    <i class="fas fa-sun icon-sun"></i>
+                    <i class="fas fa-moon icon-moon"></i>
+                </button>
+                <button class="nav-toggle" id="nav-toggle">
+                    <i class="fas fa-bars"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="flash-container">
+        {% for category, message in messages %}
+        <div class="flash-msg flash-{{ category }}">
+            <i class="fas {% if category == 'success' %}fa-check-circle{% elif category == 'error' %}fa-exclamation-circle{% elif category == 'warning' %}fa-exclamation-triangle{% else %}fa-info-circle{% endif %}"></i>
+            <span>{{ message }}</span>
+            <button class="flash-close" onclick="this.parentElement.remove()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    <!-- Main Content -->
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-container">
+            <div class="footer-grid">
+                <div class="footer-section">
+                    <div class="footer-logo">
+                        <i class="fas fa-chart-line"></i>
+                        <span>Stock<span class="logo-accent">Mind</span>-AI</span>
+                    </div>
+                    <p class="footer-desc">Your intelligent Indian stock market dashboard with real-time data, AI insights, and portfolio tools.</p>
+                </div>
+                <div class="footer-section">
+                    <h4>Quick Links</h4>
+                    <a href="{{ url_for('dashboard') }}">Dashboard</a>
+                    <a href="{{ url_for('news') }}">Market News</a>
+                    <a href="{{ url_for('ai_suggestions') }}">AI Suggestions</a>
+                </div>
+                <div class="footer-section">
+                    <h4>Tools</h4>
+                    <a href="{{ url_for('mutual_funds') }}">Mutual Funds</a>
+                    <a href="{{ url_for('sip_calculator') }}">SIP Calculator</a>
+                    {% if session.get('user_id') %}
+                    <a href="{{ url_for('watchlist') }}">Watchlist</a>
+                    {% endif %}
+                </div>
+                <div class="footer-section">
+                    <h4>Disclaimer</h4>
+                    <p class="footer-disclaimer">This platform is for informational purposes only. Not financial advice. Always consult a SEBI registered advisor.</p>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; Created by ninja62</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+
+    {# ── JWT Auth Helper ── #}
+    <script>
+    /**
+     * StockMind JWT Auth Helper
+     * --------------------------
+     * Reads the JWT access token from the <meta> tag injected by Flask.
+     * Provides authFetch() — a drop-in replacement for fetch() that
+     * automatically attaches Authorization: Bearer <token> to every request.
+     *
+     * Usage:  authFetch('/api/watchlist')  instead of  fetch('/api/watchlist')
+     *
+     * Token rotation: if /api/auth/me returns a new token on page load,
+     * we store it in memory and use it for all subsequent requests.
+     */
+    (function() {
+        // Read token from meta tag (set by Flask session)
+        let _jwtToken = (document.querySelector('meta[name="jwt-token"]') || {}).content || '';
+        const _isLoggedIn = (document.querySelector('meta[name="user-logged-in"]') || {}).content === 'true';
+
+        // Store in sessionStorage so it survives SPA-style navigation but NOT
+        // cross-tab leaks (unlike localStorage)
+        if (_jwtToken) {
+            sessionStorage.setItem('sm_jwt', _jwtToken);
+        } else {
+            _jwtToken = sessionStorage.getItem('sm_jwt') || '';
+        }
+
+        /** Get current in-memory token */
+        window.getJWT = function() { return _jwtToken; };
+
+        /** Update the in-memory token (called after refresh) */
+        window.setJWT = function(t) {
+            _jwtToken = t;
+            if (t) sessionStorage.setItem('sm_jwt', t);
+            else   sessionStorage.removeItem('sm_jwt');
+        };
+
+        /**
+         * authFetch(url, options)
+         * Works exactly like fetch() but adds Authorization header when logged in.
+         * Also handles 401 responses by clearing the stored token.
+         */
+        window.authFetch = function(url, options) {
+            options = options || {};
+            options.headers = options.headers || {};
+            if (_jwtToken) {
+                options.headers['Authorization'] = 'Bearer ' + _jwtToken;
+            }
+            return fetch(url, options).then(function(resp) {
+                if (resp.status === 401) {
+                    // Token may have expired — clear it
+                    window.setJWT('');
+                }
+                return resp;
+            });
+        };
+
+        /**
+         * On page load: if user is logged in, call /api/auth/me to get a
+         * fresh rotated token and confirm the session is valid.
+         */
+        if (_isLoggedIn && _jwtToken) {
+            fetch('/api/auth/me', {
+                headers: { 'Authorization': 'Bearer ' + _jwtToken }
+            })
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+                if (data && data.access_token) {
+                    window.setJWT(data.access_token);
+                }
+            })
+            .catch(function() { /* silent — session cookie still works */ });
+        }
+    })();
+    </script>
+
+    {% block scripts %}{% endblock %}
+
+    <!-- Dark / Light Mode Script -->
+    <script>
+    (function() {
+        var STORAGE_KEY = 'sm_theme';
+        var html = document.documentElement;
+        // Theme already applied in <head> — just wire up the toggle button
+        function applyTheme(theme) {
+            html.setAttribute('data-theme', theme);
+            try { localStorage.setItem(STORAGE_KEY, theme); } catch(e){}
+        }
+        document.addEventListener('DOMContentLoaded', function() {
+            var btn = document.getElementById('theme-toggle');
+            if (btn) {
+                btn.addEventListener('click', function() {
+                    var current = html.getAttribute('data-theme') || 'dark';
+                    applyTheme(current === 'dark' ? 'light' : 'dark');
+                });
+            }
+        });
+    })();
+    </script>
+</body>
+</html>

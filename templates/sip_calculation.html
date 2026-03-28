@@ -1,0 +1,186 @@
+{% extends 'base.html' %}
+{% block title %}SIP Calculator{% endblock %}
+
+{% block content %}
+<section class="page-section">
+    <div class="container">
+        <div class="section-header">
+            <h1 class="section-title">
+                <i class="fas fa-calculator"></i> SIP Calculator
+            </h1>
+        </div>
+        <p class="section-subtitle">Plan your Systematic Investment Plan returns with our advanced calculator</p>
+
+        <div class="sip-layout">
+            <!-- Calculator Form -->
+            <div class="sip-form-card">
+                <h3><i class="fas fa-sliders-h"></i> Investment Parameters</h3>
+                <div class="sip-form">
+                    <div class="slider-group">
+                        <label>
+                            <span>Monthly Investment (₹)</span>
+                            <span class="slider-value" id="sip-amount-val">₹5,000</span>
+                        </label>
+                        <input type="range" id="sip-amount" min="500" max="100000" step="500" value="5000">
+                        <div class="slider-range"><span>₹500</span><span>₹1,00,000</span></div>
+                    </div>
+                    <div class="slider-group">
+                        <label>
+                            <span>Expected Annual Return (%)</span>
+                            <span class="slider-value" id="sip-return-val">12%</span>
+                        </label>
+                        <input type="range" id="sip-return" min="1" max="30" step="0.5" value="12">
+                        <div class="slider-range"><span>1%</span><span>30%</span></div>
+                    </div>
+                    <div class="slider-group">
+                        <label>
+                            <span>Time Period (Years)</span>
+                            <span class="slider-value" id="sip-years-val">10 Years</span>
+                        </label>
+                        <input type="range" id="sip-years" min="1" max="40" step="1" value="10">
+                        <div class="slider-range"><span>1 Year</span><span>40 Years</span></div>
+                    </div>
+                    <button class="btn btn-primary btn-full" id="calculate-sip">
+                        <i class="fas fa-calculator"></i> Calculate Returns
+                    </button>
+                </div>
+            </div>
+
+            <!-- Results -->
+            <div class="sip-results-card" id="sip-results" style="display:none;">
+                <h3><i class="fas fa-chart-bar"></i> Investment Summary</h3>
+                <div class="sip-summary">
+                    <div class="sip-stat">
+                        <span class="stat-label">Total Investment</span>
+                        <span class="stat-value invested" id="total-invested">--</span>
+                    </div>
+                    <div class="sip-stat">
+                        <span class="stat-label">Estimated Returns</span>
+                        <span class="stat-value returns" id="total-returns">--</span>
+                    </div>
+                    <div class="sip-stat highlight">
+                        <span class="stat-label">Total Value</span>
+                        <span class="stat-value total" id="total-value">--</span>
+                    </div>
+                </div>
+
+                <!-- restult Chart -->
+                <div class="sip-chart-container">
+                    <canvas id="sip-chart" width="220" height="220"></canvas>
+                    <div class="chart-legend">
+                        <div class="legend-item"><span class="legend-dot invested-dot"></span> Invested</div>
+                        <div class="legend-item"><span class="legend-dot returns-dot"></span> Returns</div>
+                    </div>
+                </div>
+
+                <!-- Year Breakdown -->
+                <div class="sip-breakdown">
+                    <h4>Year-by-Year Breakdown</h4>
+                    <div class="breakdown-table-wrapper">
+                        <table class="breakdown-table">
+                            <thead>
+                                <tr>
+                                    <th>Year</th>
+                                    <th>Invested (₹)</th>
+                                    <th>Value (₹)</th>
+                                    <th>Gains (₹)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="breakdown-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Slider live updates
+['sip-amount', 'sip-return', 'sip-years'].forEach(id => {
+    const el = document.getElementById(id);
+    el?.addEventListener('input', function() {
+        if (id === 'sip-amount') document.getElementById('sip-amount-val').textContent = '₹' + parseInt(this.value).toLocaleString('en-IN');
+        if (id === 'sip-return') document.getElementById('sip-return-val').textContent = this.value + '%';
+        if (id === 'sip-years') document.getElementById('sip-years-val').textContent = this.value + ' Years';
+    });
+});
+
+document.getElementById('calculate-sip')?.addEventListener('click', calculateSIP);
+
+function calculateSIP() {
+    const monthly = parseInt(document.getElementById('sip-amount').value);
+    const rate = parseFloat(document.getElementById('sip-return').value);
+    const years = parseInt(document.getElementById('sip-years').value);
+
+    fetch('/api/sip-calculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ monthly_investment: monthly, expected_return: rate, time_period: years })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) return;
+        const results = document.getElementById('sip-results');
+        results.style.display = 'block';
+        results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        document.getElementById('total-invested').textContent = '₹' + data.total_investment.toLocaleString('en-IN', {maximumFractionDigits: 0});
+        document.getElementById('total-returns').textContent = '₹' + data.estimated_returns.toLocaleString('en-IN', {maximumFractionDigits: 0});
+        document.getElementById('total-value').textContent = '₹' + data.total_value.toLocaleString('en-IN', {maximumFractionDigits: 0});
+
+        // Donut chart
+        drawDonut(data.total_investment, data.estimated_returns);
+
+        // Breakdown table
+        const tbody = document.getElementById('breakdown-tbody');
+        tbody.innerHTML = data.breakdown.map(row => `
+            <tr>
+                <td>${row.year}</td>
+                <td>₹${row.invested.toLocaleString('en-IN', {maximumFractionDigits: 0})}</td>
+                <td>₹${row.value.toLocaleString('en-IN', {maximumFractionDigits: 0})}</td>
+                <td class="positive">₹${row.gains.toLocaleString('en-IN', {maximumFractionDigits: 0})}</td>
+            </tr>
+        `).join('');
+    });
+}
+
+function drawDonut(invested, returns) {
+    const canvas = document.getElementById('sip-chart');
+    const ctx = canvas.getContext('2d');
+    const total = invested + returns;
+    const invAngle = (invested / total) * 2 * Math.PI;
+    const retAngle = (returns / total) * 2 * Math.PI;
+    const cx = 110, cy = 110, r = 85, inner = 55;
+
+    ctx.clearRect(0, 0, 220, 220);
+
+    // Invested slice
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + invAngle);
+    ctx.arc(cx, cy, inner, -Math.PI / 2 + invAngle, -Math.PI / 2, true);
+    ctx.closePath();
+    ctx.fillStyle = '#6366f1';
+    ctx.fill();
+
+    // Returns slice
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, -Math.PI / 2 + invAngle, -Math.PI / 2 + invAngle + retAngle);
+    ctx.arc(cx, cy, inner, -Math.PI / 2 + invAngle + retAngle, -Math.PI / 2 + invAngle, true);
+    ctx.closePath();
+    ctx.fillStyle = '#10b981';
+    ctx.fill();
+
+    // Center text
+    ctx.fillStyle = '#fff';
+    ctx.font = '600 14px Inter';
+    ctx.textAlign = 'center';
+    ctx.fillText('Total', cx, cy - 6);
+    ctx.font = '700 13px Inter';
+    ctx.fillStyle = '#10b981';
+    ctx.fillText('₹' + total.toLocaleString('en-IN', {maximumFractionDigits: 0}), cx, cy + 14);
+}
+</script>
+{% endblock %}

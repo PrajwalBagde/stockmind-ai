@@ -1,0 +1,120 @@
+{% extends 'base.html' %}
+{% block title %}Mutual Fund Advisor{% endblock %}
+
+{% block content %}
+<section class="page-section">
+    <div class="container">
+        <div class="section-header">
+            <h1 class="section-title">
+                <i class="fas fa-chart-pie"></i> Indian Mutual Fund Advisor
+            </h1>
+        </div>
+        <p class="section-subtitle">Top-rated Indian mutual funds across categories — curated for smart investing</p>
+
+        <!-- Filter Tabs -->
+        <div class="filter-tabs" id="fund-filters">
+            <button class="filter-tab active" data-filter="all">All</button>
+            <button class="filter-tab" data-filter="Large Cap">Large Cap</button>
+            <button class="filter-tab" data-filter="Mid Cap">Mid Cap</button>
+            <button class="filter-tab" data-filter="Small Cap">Small Cap</button>
+            <button class="filter-tab" data-filter="Multi Cap">Multi Cap</button>
+            <button class="filter-tab" data-filter="ELSS (Tax Saving)">ELSS</button>
+            <button class="filter-tab" data-filter="Index Fund">Index</button>
+            <button class="filter-tab" data-filter="Hybrid Fund">Hybrid</button>
+        </div>
+
+        <div class="mf-grid" id="mf-grid">
+            <div class="news-skeleton">
+                <div class="loader"><div class="loader-dot"></div><div class="loader-dot"></div><div class="loader-dot"></div></div>
+                <span>Loading fund recommendations...</span>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allFunds = [];
+
+document.addEventListener('DOMContentLoaded', loadFunds);
+
+document.getElementById('fund-filters')?.addEventListener('click', function(e) {
+    if (e.target.classList.contains('filter-tab')) {
+        document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+        e.target.classList.add('active');
+        renderFunds(e.target.dataset.filter);
+    }
+});
+
+function loadFunds() {
+    fetch('/api/mutual-funds')
+        .then(r => r.json())
+        .then(data => {
+            allFunds = data;
+            renderFunds('all');
+        })
+        .catch(() => {
+            document.getElementById('mf-grid').innerHTML = '<div class="empty-state"><i class="fas fa-chart-pie"></i><p>Failed to load funds.</p></div>';
+        });
+}
+
+function renderFunds(filter) {
+    const grid = document.getElementById('mf-grid');
+    const funds = filter === 'all' ? allFunds : allFunds.filter(f => f.category === filter);
+
+    if (!funds.length) {
+        grid.innerHTML = '<div class="empty-state"><p>No funds in this category.</p></div>';
+        return;
+    }
+
+    grid.innerHTML = funds.map((f, i) => {
+        const stars = '★'.repeat(f.rating) + '☆'.repeat(5 - f.rating);
+        const riskClass = f.risk === 'High' ? 'risk-high' : f.risk === 'Moderate' ? 'risk-moderate' : 'risk-low';
+        return `
+        <div class="mf-card" style="animation-delay: ${i * 0.05}s">
+            <div class="mf-header">
+                <div>
+                    <h3 class="mf-name">${f.name}</h3>
+                    <span class="mf-amc">${f.amc}</span>
+                </div>
+                <span class="mf-category-badge">${f.category}</span>
+            </div>
+            <div class="mf-rating">
+                <span class="stars">${stars}</span>
+                <span class="mf-risk ${riskClass}">${f.risk} Risk</span>
+            </div>
+            <div class="mf-returns">
+                <div class="return-item">
+                    <span class="return-period">1Y Return</span>
+                    <span class="return-value positive">${f.returns_1y}%</span>
+                </div>
+                <div class="return-item">
+                    <span class="return-period">3Y Return</span>
+                    <span class="return-value positive">${f.returns_3y}%</span>
+                </div>
+                <div class="return-item">
+                    <span class="return-period">5Y Return</span>
+                    <span class="return-value positive">${f.returns_5y}%</span>
+                </div>
+            </div>
+            <div class="mf-details">
+                <div class="mf-detail">
+                    <span>Min SIP</span>
+                    <strong>₹${f.min_sip.toLocaleString('en-IN')}</strong>
+                </div>
+                <div class="mf-detail">
+                    <span>Min Lumpsum</span>
+                    <strong>₹${f.min_lumpsum.toLocaleString('en-IN')}</strong>
+                </div>
+                <div class="mf-detail">
+                    <span>Expense Ratio</span>
+                    <strong>${f.expense_ratio}%</strong>
+                </div>
+            </div>
+        </div>
+        `;
+    }).join('');
+}
+</script>
+{% endblock %}

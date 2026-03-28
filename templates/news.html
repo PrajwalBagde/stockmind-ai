@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% block title %}Market News{% endblock %}
+
+{% block content %}
+<section class="page-section">
+    <div class="container">
+        <div class="section-header">
+            <h1 class="section-title">
+                <i class="fas fa-newspaper"></i> Indian Market News
+            </h1>
+            <button class="refresh-btn" id="refresh-news" title="Refresh">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+        <p class="section-subtitle">Latest financial news from Economic Times, Moneycontrol &amp; LiveMint</p>
+
+        <div class="news-grid" id="news-grid">
+            <div class="news-skeleton">
+                <div class="loader"><div class="loader-dot"></div><div class="loader-dot"></div><div class="loader-dot"></div></div>
+                <span>Fetching latest news...</span>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', loadNews);
+document.getElementById('refresh-news')?.addEventListener('click', loadNews);
+
+function loadNews() {
+    const btn = document.getElementById('refresh-news');
+    if (btn) btn.classList.add('spinning');
+    const grid = document.getElementById('news-grid');
+
+    fetch('/api/news')
+        .then(r => r.json())
+        .then(articles => {
+            if (!articles.length) {
+                grid.innerHTML = '<div class="empty-state"><i class="fas fa-newspaper"></i><p>No news available right now. Try refreshing.</p></div>';
+                return;
+            }
+            grid.innerHTML = articles.map((a, i) => `
+                <article class="news-card" style="animation-delay: ${i * 0.05}s">
+                    <div class="news-source">
+                        <i class="fas fa-rss"></i>
+                        <span>${a.source}</span>
+                        <span class="news-dot">·</span>
+                        <span class="news-date">${a.published || 'Recent'}</span>
+                    </div>
+                    <h3 class="news-title">
+                        <a href="${a.link}" target="_blank" rel="noopener">${a.title}</a>
+                    </h3>
+                    <p class="news-summary">${stripHtml(a.summary)}</p>
+                    <a href="${a.link}" target="_blank" rel="noopener" class="news-read-more">
+                        Read full article <i class="fas fa-external-link-alt"></i>
+                    </a>
+                </article>
+            `).join('');
+            if (btn) btn.classList.remove('spinning');
+        })
+        .catch(() => {
+            grid.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Failed to load news. Please try again.</p></div>';
+            if (btn) btn.classList.remove('spinning');
+        });
+}
+
+function stripHtml(html) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    return tmp.textContent || tmp.innerText || '';
+}
+</script>
+{% endblock %}

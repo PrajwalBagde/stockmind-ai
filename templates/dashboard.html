@@ -1,0 +1,550 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- Market Status Banner -->
+<div class="market-banner" id="market-banner">
+    <div class="banner-container">
+        <div class="banner-left">
+            <div class="status-indicator" id="market-status-dot"></div>
+            <span class="status-text" id="market-status-text">Loading market status...</span>
+        </div>
+        <div class="banner-right">
+            <span class="banner-time" id="market-time"></span>
+            <div class="exchange-rate" id="exchange-rate">
+                <span class="rate-label">USD/INR</span>
+                <span class="rate-value" id="usd-inr-rate">--</span>
+                <span class="rate-change" id="usd-inr-change"></span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Hero Indices Section -->
+<section class="indices-section">
+    <div class="container">
+        <div class="section-header">
+            <h1 class="section-title">
+                <i class="fas fa-chart-bar"></i> Indian Market Overview
+            </h1>
+            <button class="refresh-btn" id="refresh-indices" title="Refresh data">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+        <div class="indices-grid" id="indices-grid">
+            <div class="index-card skeleton-card">
+                <div class="skeleton-line w-60"></div>
+                <div class="skeleton-line w-40"></div>
+                <div class="skeleton-line w-80"></div>
+            </div>
+            <div class="index-card skeleton-card">
+                <div class="skeleton-line w-60"></div>
+                <div class="skeleton-line w-40"></div>
+                <div class="skeleton-line w-80"></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Top Stocks Section -->
+<section class="stocks-section">
+    <div class="container">
+        <div class="section-header">
+            <h2 class="section-title">
+                <i class="fas fa-building"></i> Top Indian Stocks
+            </h2>
+            <div class="section-actions">
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="stock-search" placeholder="Search stocks..." autocomplete="off">
+                </div>
+                <button class="refresh-btn" id="refresh-stocks" title="Refresh">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+            </div>
+        </div>
+        <div class="stocks-table-wrapper">
+            <table class="stocks-table" id="stocks-table">
+                <thead>
+                    <tr>
+                        <th>Stock</th>
+                        <th>Price (₹)</th>
+                        <th>Change</th>
+                        <th>% Change</th>
+                        <th>High</th>
+                        <th>Low</th>
+                        <th>Volume</th>
+                        <th>Chart</th>
+                        {% if session.get('user_id') %}
+                        <th>Watch</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody id="stocks-tbody">
+                    <tr>
+                        <td colspan="{% if session.get('user_id') %}9{% else %}8{% endif %}" class="loading-cell">
+                            <div class="loader">
+                                <div class="loader-dot"></div>
+                                <div class="loader-dot"></div>
+                                <div class="loader-dot"></div>
+                            </div>
+                            <span>Fetching live stock data...</span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<!-- Quick Actions -->
+<section class="quick-actions">
+    <div class="container">
+        <div class="actions-grid">
+            <a href="{{ url_for('ai_suggestions') }}" class="action-card">
+                <div class="action-icon ai-icon">
+                    <i class="fas fa-robot"></i>
+                </div>
+                <h3>AI Stock Picks</h3>
+                <p>AI-powered buy/sell signals for Indian stocks</p>
+                <span class="action-arrow"><i class="fas fa-arrow-right"></i></span>
+            </a>
+            <a href="{{ url_for('mutual_funds') }}" class="action-card">
+                <div class="action-icon mf-icon">
+                    <i class="fas fa-chart-pie"></i>
+                </div>
+                <h3>Mutual Funds</h3>
+                <p>Top-rated Indian mutual fund recommendations</p>
+                <span class="action-arrow"><i class="fas fa-arrow-right"></i></span>
+            </a>
+            <a href="{{ url_for('sip_calculator') }}" class="action-card">
+                <div class="action-icon sip-icon">
+                    <i class="fas fa-calculator"></i>
+                </div>
+                <h3>SIP Calculator</h3>
+                <p>Plan your systematic investment returns</p>
+                <span class="action-arrow"><i class="fas fa-arrow-right"></i></span>
+            </a>
+            <a href="{{ url_for('news') }}" class="action-card">
+                <div class="action-icon news-icon">
+                    <i class="fas fa-newspaper"></i>
+                </div>
+                <h3>Market News</h3>
+                <p>Latest Indian financial news &amp; analysis</p>
+                <span class="action-arrow"><i class="fas fa-arrow-right"></i></span>
+            </a>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const isLoggedIn = {{ 'true' if session.get('user_id') else 'false' }};
+let watchlistSymbols = new Set();
+let activeChart = null;
+let currentSymbol = null;
+let currentPeriod = '1mo';
+
+// Load all dashboard data
+document.addEventListener('DOMContentLoaded', () => {
+    loadMarketStatus();
+    loadIndices();
+    loadExchangeRate();
+    if (isLoggedIn) {
+        loadWatchlistSymbols().then(() => loadStocks());
+    } else {
+        loadStocks();
+    }
+
+    // Auto-refresh every 60 seconds
+    setInterval(() => {
+        loadMarketStatus();
+        loadIndices();
+        loadExchangeRate();
+        if (isLoggedIn) {
+            loadWatchlistSymbols().then(() => loadStocks());
+        } else {
+            loadStocks();
+        }
+    }, 60000);
+
+    // Modal close
+    document.getElementById('modal-close')?.addEventListener('click', closeModal);
+    document.getElementById('chart-modal')?.addEventListener('click', function(e) {
+        if (e.target === this) closeModal();
+    });
+    // Period selector
+    document.querySelectorAll('.period-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            currentPeriod = this.dataset.period;
+            if (currentSymbol) loadChart(currentSymbol, currentPeriod);
+        });
+    });
+});
+
+document.getElementById('refresh-indices')?.addEventListener('click', loadIndices);
+document.getElementById('refresh-stocks')?.addEventListener('click', () => {
+    if (isLoggedIn) { loadWatchlistSymbols().then(() => loadStocks()); } else { loadStocks(); }
+});
+
+// Search filter
+document.getElementById('stock-search')?.addEventListener('input', function() {
+    const q = this.value.toLowerCase();
+    document.querySelectorAll('#stocks-tbody tr').forEach(row => {
+        row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+});
+
+function loadWatchlistSymbols() {
+    return authFetch('/api/watchlist/symbols')
+        .then(r => r.ok ? r.json() : [])
+        .then(syms => { watchlistSymbols = new Set(syms); })
+        .catch(() => {});
+}
+
+function loadMarketStatus() {
+    fetch('/api/market-status')
+        .then(r => r.json())
+        .then(data => {
+            const dot    = document.getElementById('market-status-dot');
+            const text   = document.getElementById('market-status-text');
+            const time   = document.getElementById('market-time');
+            const banner = document.getElementById('market-banner');
+            if (data.is_open) {
+                dot.className = 'status-indicator status-open';
+                text.textContent = 'Market Open';
+                banner.classList.add('banner-open'); banner.classList.remove('banner-closed');
+            } else {
+                dot.className = 'status-indicator status-closed';
+                text.textContent = data.message;
+                banner.classList.add('banner-closed'); banner.classList.remove('banner-open');
+            }
+            time.textContent = data.current_time || '';
+        })
+        .catch(() => {
+            document.getElementById('market-status-text').textContent = 'Unable to fetch market status';
+        });
+}
+
+function loadExchangeRate() {
+    fetch('/api/exchange-rate')
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('usd-inr-rate').textContent = '₹' + data.rate.toFixed(2);
+            const el = document.getElementById('usd-inr-change');
+            const sign = data.change >= 0 ? '+' : '';
+            el.textContent = `${sign}${data.change.toFixed(2)} (${sign}${data.change_pct.toFixed(2)}%)`;
+            el.className = 'rate-change ' + (data.change >= 0 ? 'positive' : 'negative');
+        }).catch(() => {});
+}
+
+function loadIndices() {
+    const btn = document.getElementById('refresh-indices');
+    if (btn) btn.classList.add('spinning');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25000);
+    fetch('/api/indices', { signal: controller.signal })
+        .then(r => r.json())
+        .then(data => {
+            clearTimeout(timer);
+            const grid = document.getElementById('indices-grid');
+            grid.innerHTML = '';
+            for (const [symbol, idx] of Object.entries(data)) {
+                const isUp = idx.change >= 0;
+                grid.innerHTML += `
+                    <div class="index-card ${isUp ? 'card-up' : 'card-down'}">
+                        <div class="index-header">
+                            <span class="index-name">${idx.name}</span>
+                            <span class="index-badge ${isUp ? 'badge-up' : 'badge-down'}">
+                                <i class="fas fa-${isUp ? 'caret-up' : 'caret-down'}"></i>
+                                ${isUp ? '+' : ''}${idx.change_pct}%
+                            </span>
+                        </div>
+                        <div class="index-price">${formatINR(idx.price)}</div>
+                        <div class="index-change ${isUp ? 'positive' : 'negative'}">
+                            <i class="fas fa-${isUp ? 'arrow-up' : 'arrow-down'}"></i>
+                            ${isUp ? '+' : ''}${idx.change.toFixed(2)}
+                        </div>
+                        <div class="index-details">
+                            <span><strong>H:</strong> ${formatINR(idx.high)}</span>
+                            <span><strong>L:</strong> ${formatINR(idx.low)}</span>
+                            <span><strong>Vol:</strong> ${formatVolume(idx.volume)}</span>
+                        </div>
+                    </div>`;
+            }
+            if (btn) btn.classList.remove('spinning');
+        }).catch(() => { clearTimeout(timer); if (btn) btn.classList.remove('spinning'); });
+}
+}
+
+function loadStocks() {
+    const btn = document.getElementById('refresh-stocks');
+    if (btn) btn.classList.add('spinning');
+    const tbody = document.getElementById('stocks-tbody');
+    const cols = isLoggedIn ? 9 : 8;
+    tbody.innerHTML = `<tr><td colspan="${cols}" class="loading-cell">
+        <div class="loader"><div class="loader-dot"></div><div class="loader-dot"></div><div class="loader-dot"></div></div>
+        <span>Fetching live stock data...</span></td></tr>`;
+
+    fetch('/api/stocks')
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(data => {
+            tbody.innerHTML = '';
+            if (!data || data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="${cols}" class="loading-cell" style="color:var(--text-muted)">
+                    <i class="fas fa-exclamation-circle"></i> No stock data available right now.
+                    <button onclick="loadStocks()" style="margin-left:10px;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--accent);cursor:pointer;">Retry</button>
+                </td></tr>`;
+                if (btn) btn.classList.remove('spinning');
+                return;
+            }
+            data.forEach(stock => {
+                const isUp = stock.change >= 0;
+                const cls = isUp ? 'positive' : 'negative';
+                const icon = isUp ? 'caret-up' : 'caret-down';
+                const sign = isUp ? '+' : '';
+                const inWL = watchlistSymbols.has(stock.symbol);
+                const safeName = stock.name.replace(/'/g, "\\'");
+
+                let actionBtn = '';
+                if (isLoggedIn) {
+                    actionBtn = `<td>
+                        <button class="watchlist-btn ${inWL ? 'watchlist-active' : ''}"
+                            onclick="toggleWatchlist('${stock.symbol}','${safeName}',this)"
+                            title="${inWL ? 'Remove from Watchlist' : 'Add to Watchlist'}">
+                            <i class="${inWL ? 'fas' : 'far'} fa-star"></i>
+                        </button>
+                    </td>`;
+                }
+
+                tbody.innerHTML += `
+                    <tr class="stock-row" style="cursor:pointer;" onclick="handleRowClick(event,'${stock.symbol}','${safeName}')">
+                        <td>
+                            <div class="stock-info">
+                                <span class="stock-name">${stock.name}</span>
+                                <span class="stock-symbol">${stock.symbol.replace('.NS','')}</span>
+                            </div>
+                        </td>
+                        <td class="price-cell">${formatINR(stock.price)}</td>
+                        <td class="${cls}"><i class="fas fa-${icon}"></i> ${sign}${stock.change.toFixed(2)}</td>
+                        <td><span class="pct-badge ${cls}">${sign}${stock.change_pct.toFixed(2)}%</span></td>
+                        <td>${formatINR(stock.high)}</td>
+                        <td>${formatINR(stock.low)}</td>
+                        <td>${formatVolume(stock.volume)}</td>
+                        <td>
+                            <button class="watchlist-btn" title="View Chart"
+                                onclick="event.stopPropagation();openChart('${stock.symbol}','${safeName}')">
+                                <i class="fas fa-chart-line" style="color:var(--accent)"></i>
+                            </button>
+                        </td>
+                        ${actionBtn}
+                    </tr>`;
+            });
+            if (btn) btn.classList.remove('spinning');
+        }).catch(err => {
+            tbody.innerHTML = `<tr><td colspan="${cols}" class="loading-cell" style="color:var(--red)">
+                <i class="fas fa-exclamation-triangle"></i> Failed to load stock data.
+                <button onclick="loadStocks()" style="margin-left:10px;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--accent);cursor:pointer;">Retry</button>
+            </td></tr>`;
+            if (btn) btn.classList.remove('spinning');
+        });
+}
+
+function handleRowClick(event, symbol, name) {
+    if (event.target.closest('.watchlist-btn')) return;
+    openChart(symbol, name);
+}
+
+function toggleWatchlist(symbol, name, btn) {
+    const icon = btn.querySelector('i');
+    const isAdded = icon.classList.contains('fas');
+    const endpoint = isAdded ? '/api/watchlist/remove' : '/api/watchlist/add';
+    // Use authFetch so the JWT token is sent — required by api_login_required
+    authFetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, name })
+    }).then(r => r.json()).then(data => {
+        if (data.success) {
+            if (isAdded) {
+                icon.classList.replace('fas', 'far');
+                btn.classList.remove('watchlist-active');
+                watchlistSymbols.delete(symbol);
+                showToast('Removed from watchlist');
+            } else {
+                icon.classList.replace('far', 'fas');
+                btn.classList.add('watchlist-active');
+                watchlistSymbols.add(symbol);
+                showToast('Added to watchlist');
+            }
+        } else {
+            showToast(data.error || 'Action failed');
+        }
+    }).catch(() => showToast('Network error'));
+}
+
+// ─── Chart Modal ──────────────────────────────────────────────────────────────
+function openChart(symbol, name) {
+    currentSymbol = symbol;
+    currentPeriod = '1mo';
+    document.querySelectorAll('.period-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.period === '1mo');
+    });
+    document.getElementById('modal-stock-name').textContent = name;
+    document.getElementById('modal-stock-symbol').textContent = symbol.replace('.NS','');
+    document.getElementById('chart-modal').style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    loadChart(symbol, currentPeriod);
+}
+
+function closeModal() {
+    document.getElementById('chart-modal').style.display = 'none';
+    document.body.style.overflow = '';
+    if (activeChart) { activeChart.destroy(); activeChart = null; }
+}
+
+function loadChart(symbol, period) {
+    const loading = document.getElementById('chart-loading');
+    const canvas  = document.getElementById('stock-chart-canvas');
+    const stats   = document.getElementById('chart-stats');
+    loading.style.display = 'block';
+    loading.innerHTML = '<div class="loader"><div class="loader-dot"></div><div class="loader-dot"></div><div class="loader-dot"></div></div><span>Loading chart...</span>';
+    canvas.style.display = 'none';
+    stats.style.display = 'none';
+    if (activeChart) { activeChart.destroy(); activeChart = null; }
+
+    fetch(`/api/stock-chart/${encodeURIComponent(symbol)}?period=${period}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                loading.innerHTML = `<p style="color:var(--red)"><i class="fas fa-exclamation-triangle"></i> ${data.error}</p>`;
+                return;
+            }
+            loading.style.display = 'none';
+            canvas.style.display = 'block';
+
+            const closes = data.close;
+            const first  = closes.find(v => v != null) || 0;
+            const last   = [...closes].reverse().find(v => v != null) || 0;
+            const isUp   = last >= first;
+            const lineColor = isUp ? '#10b981' : '#ef4444';
+            const fillColor = isUp ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)';
+
+            const datasets = [{
+                label: 'Price (₹)',
+                data: closes,
+                borderColor: lineColor,
+                backgroundColor: fillColor,
+                fill: true, tension: 0.3,
+                pointRadius: 0, borderWidth: 2,
+            }];
+            if (data.sma20?.some(v => v)) datasets.push({
+                label: 'SMA 20', data: data.sma20,
+                borderColor: '#6366f1', borderDash: [4,4],
+                pointRadius: 0, borderWidth: 1.5, fill: false, tension: 0.3,
+            });
+            if (data.sma50?.some(v => v)) datasets.push({
+                label: 'SMA 50', data: data.sma50,
+                borderColor: '#f59e0b', borderDash: [6,3],
+                pointRadius: 0, borderWidth: 1.5, fill: false, tension: 0.3,
+            });
+
+            activeChart = new Chart(canvas, {
+                type: 'line',
+                data: { labels: data.dates, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: true,
+                    interaction: { intersect: false, mode: 'index' },
+                    plugins: {
+                        legend: { display: true, labels: { color:'#94a3b8', font:{size:11}, boxWidth:16 }},
+                        tooltip: {
+                            backgroundColor:'#111827', borderColor:'#1e293b', borderWidth:1,
+                            titleColor:'#f1f5f9', bodyColor:'#94a3b8',
+                            callbacks: { label: ctx => ` ₹${ctx.parsed.y?.toLocaleString('en-IN') ?? '—'}` }
+                        }
+                    },
+                    scales: {
+                        x: { ticks:{ color:'#64748b', font:{size:10}, maxTicksLimit:8, maxRotation:0 }, grid:{ color:'rgba(30,41,59,0.6)' }},
+                        y: { position:'right', ticks:{ color:'#64748b', font:{size:10}, callback: v=>'₹'+v.toLocaleString('en-IN') }, grid:{ color:'rgba(30,41,59,0.6)' }}
+                    }
+                }
+            });
+
+            const chgAbs = last - first;
+            const chgPct = first ? ((chgAbs/first)*100).toFixed(2) : '0.00';
+            const sign   = chgAbs >= 0 ? '+' : '';
+            const col    = chgAbs >= 0 ? 'var(--green)' : 'var(--red)';
+            stats.innerHTML = `
+                <span><strong style="color:var(--text-primary)">₹${last?.toLocaleString('en-IN')}</strong> <small style="color:var(--text-muted)">Latest</small></span>
+                <span style="color:${col}">${sign}₹${Math.abs(chgAbs).toFixed(2)} (${sign}${chgPct}%)</span>
+                <span><small style="color:var(--text-muted)">${period.toUpperCase()} performance</small></span>`;
+            stats.style.display = 'flex';
+        })
+        .catch(() => {
+            loading.innerHTML = '<p style="color:var(--red)"><i class="fas fa-exclamation-triangle"></i> Failed to load chart data.</p>';
+        });
+}
+</script>
+
+<!-- Stock Chart Modal (shared with watchlist page) -->
+<div class="modal-overlay" id="chart-modal" style="display:none;">
+    <div class="modal-box">
+        <div class="modal-header">
+            <div>
+                <h3 id="modal-stock-name">Stock Chart</h3>
+                <span id="modal-stock-symbol" style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);"></span>
+            </div>
+            <button class="modal-close" id="modal-close"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="chart-periods">
+            <button class="period-btn active" data-period="1mo">1M</button>
+            <button class="period-btn" data-period="3mo">3M</button>
+            <button class="period-btn" data-period="6mo">6M</button>
+            <button class="period-btn" data-period="1y">1Y</button>
+            <button class="period-btn" data-period="5y">5Y</button>
+        </div>
+        <div id="chart-loading" style="text-align:center;padding:40px;color:var(--text-muted);">
+            <div class="loader"><div class="loader-dot"></div><div class="loader-dot"></div><div class="loader-dot"></div></div>
+            <span>Loading chart...</span>
+        </div>
+        <canvas id="stock-chart-canvas" style="display:none;width:100%;max-height:360px;"></canvas>
+        <div id="chart-stats" class="chart-stat-row" style="display:none;"></div>
+    </div>
+</div>
+
+<style>
+.modal-overlay {
+    position:fixed;inset:0;z-index:2000;
+    background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);
+    display:flex;align-items:center;justify-content:center;padding:16px;
+}
+.modal-box {
+    background:var(--bg-card);border:1px solid var(--border-light);
+    border-radius:var(--radius);padding:28px;
+    width:100%;max-width:760px;box-shadow:var(--shadow-lg);
+    animation:fadeUp 0.25s ease-out;
+}
+.modal-header { display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px; }
+.modal-header h3 { font-size:18px;font-weight:800; }
+.modal-close { background:none;border:none;color:var(--text-muted);font-size:18px;cursor:pointer;padding:4px 8px;transition:color 0.2s; }
+.modal-close:hover { color:var(--red); }
+.chart-periods { display:flex;gap:6px;margin-bottom:16px; }
+.period-btn {
+    padding:5px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);
+    background:transparent;color:var(--text-muted);
+    font-family:var(--font);font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;
+}
+.period-btn:hover { color:var(--text-primary);border-color:var(--border-light); }
+.period-btn.active { background:var(--accent);color:#fff;border-color:var(--accent); }
+.chart-stat-row {
+    margin-top:14px;padding:12px 16px;
+    background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);
+    display:flex;gap:24px;align-items:center;font-size:14px;
+}
+.stock-row:hover { background: rgba(99,102,241,0.04); }
+</style>
+{% endblock %}

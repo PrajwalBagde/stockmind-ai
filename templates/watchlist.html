@@ -1,0 +1,425 @@
+{% extends 'base.html' %}
+{% block title %}My Watchlist{% endblock %}
+
+{% block content %}
+<section class="page-section">
+    <div class="container">
+        <div class="section-header">
+            <h1 class="section-title">
+                <i class="fas fa-star"></i> My Watchlist
+            </h1>
+            <button class="refresh-btn" id="refresh-watchlist" title="Refresh prices">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+        <p class="section-subtitle">Track your favourite Indian stocks — up to 20 symbols</p>
+
+        <!-- Add Stock Form -->
+        <div class="watchlist-add">
+            <div class="add-stock-form">
+                <select class="stock-select" id="add-stock-select">
+                    <option value="">— Select a stock to add —</option>
+                    {% for symbol, name in stocks.items() %}
+                    <option value="{{ symbol }}" data-name="{{ name }}">{{ name }} ({{ symbol.replace('.NS','') }})</option>
+                    {% endfor %}
+                </select>
+                <button class="btn btn-primary" id="add-stock-btn">
+                    <i class="fas fa-plus"></i> Add to Watchlist
+                </button>
+            </div>
+        </div>
+
+        <!-- Watchlist Table -->
+        <div class="stocks-table-wrapper" id="watchlist-wrapper">
+            <table class="stocks-table">
+                <thead>
+                    <tr>
+                        <th>Stock</th>
+                        <th>Price (₹)</th>
+                        <th>Change</th>
+                        <th>% Change</th>
+                        <th>Added On</th>
+                        <th>Chart</th>
+                        <th>Remove</th>
+                    </tr>
+                </thead>
+                <tbody id="watchlist-tbody">
+                    <tr>
+                        <td colspan="7" class="loading-cell">
+                            <div class="loader">
+                                <div class="loader-dot"></div>
+                                <div class="loader-dot"></div>
+                                <div class="loader-dot"></div>
+                            </div>
+                            <span>Loading your watchlist...</span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<!-- Stock Chart Modal -->
+<div class="modal-overlay" id="chart-modal" style="display:none;">
+    <div class="modal-box">
+        <div class="modal-header">
+            <div>
+                <h3 id="modal-stock-name">Stock Chart</h3>
+                <span id="modal-stock-symbol" style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);"></span>
+            </div>
+            <button class="modal-close" id="modal-close"><i class="fas fa-times"></i></button>
+        </div>
+        <!-- Period Selector -->
+        <div class="chart-periods">
+            <button class="period-btn active" data-period="1mo">1M</button>
+            <button class="period-btn" data-period="3mo">3M</button>
+            <button class="period-btn" data-period="6mo">6M</button>
+            <button class="period-btn" data-period="1y">1Y</button>
+            <button class="period-btn" data-period="5y">5Y</button>
+        </div>
+        <div id="chart-loading" style="text-align:center;padding:40px;color:var(--text-muted);">
+            <div class="loader"><div class="loader-dot"></div><div class="loader-dot"></div><div class="loader-dot"></div></div>
+            <span>Loading chart...</span>
+        </div>
+        <canvas id="stock-chart-canvas" style="display:none;width:100%;max-height:360px;"></canvas>
+        <div id="chart-stats" class="chart-stat-row" style="display:none;"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+let activeChart = null;
+let currentSymbol = null;
+let currentPeriod = '1mo';
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadWatchlist();
+    document.getElementById('refresh-watchlist')?.addEventListener('click', loadWatchlist);
+    document.getElementById('add-stock-btn')?.addEventListener('click', addStock);
+
+    // Modal close
+    document.getElementById('modal-close')?.addEventListener('click', closeModal);
+    document.getElementById('chart-modal')?.addEventListener('click', function(e) {
+        if (e.target === this) closeModal();
+    });
+
+    // Period selector
+    document.querySelectorAll('.period-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            currentPeriod = this.dataset.period;
+            if (currentSymbol) loadChart(currentSymbol, currentPeriod);
+        });
+    });
+});
+
+function loadWatchlist() {
+    const btn = document.getElementById('refresh-watchlist');
+    if (btn) btn.classList.add('spinning');
+    const tbody = document.getElementById('watchlist-tbody');
+
+    authFetch('/api/watchlist')
+        .then(r => {
+            if (r.status === 401) {
+                window.location.href = '/login';
+                throw new Error('Unauthorized');
+            }
+            return r.json();
+        })
+        .then(data => {
+            if (!Array.isArray(data) || data.length === 0) {
+                tbody.innerHTML = `
+                    <tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text-muted);">
+                        <i class="fas fa-star" style="font-size:32px;margin-bottom:12px;opacity:0.3;display:block;"></i>
+                        Your watchlist is empty. Add stocks using the selector above.
+                    </td></tr>`;
+                if (btn) btn.classList.remove('spinning');
+                return;
+            }
+            tbody.innerHTML = data.map(s => {
+                const isUp  = (s.change || 0) >= 0;
+                const cls   = isUp ? 'positive' : 'negative';
+                const icon  = isUp ? 'caret-up' : 'caret-down';
+                const sign  = isUp ? '+' : '';
+                const price = s.price != null ? formatINR(s.price) : '—';
+                const chg   = s.change != null ? `<i class="fas fa-${icon}"></i> ${sign}${s.change.toFixed(2)}` : '—';
+                const chgP  = s.change_pct != null
+                    ? `<span class="pct-badge ${cls}">${sign}${s.change_pct.toFixed(2)}%</span>` : '—';
+                const added = s.added_at ? s.added_at.split('T')[0] : '—';
+                const sym   = s.symbol || '';
+                const symShort = sym.replace('.NS','');
+
+                return `<tr class="stock-row">
+                    <td>
+                        <div class="stock-info">
+                            <span class="stock-name">${s.name}</span>
+                            <span class="stock-symbol">${symShort}</span>
+                        </div>
+                    </td>
+                    <td class="price-cell">${price}</td>
+                    <td class="${cls}">${chg}</td>
+                    <td>${chgP}</td>
+                    <td style="font-size:12px;color:var(--text-muted);">${added}</td>
+                    <td>
+                        <button class="watchlist-btn" onclick="openChart('${sym}','${s.name.replace(/'/g,"\\'")}')">
+                            <i class="fas fa-chart-line"></i>
+                        </button>
+                    </td>
+                    <td>
+                        <button class="watchlist-btn remove-btn" onclick="removeStock('${sym}','${s.name.replace(/'/g,"\\'")}',this)">
+                            <i class="fas fa-trash-alt" style="color:var(--red)"></i>
+                        </button>
+                    </td>
+                </tr>`;
+            }).join('');
+            if (btn) btn.classList.remove('spinning');
+        })
+        .catch(err => {
+            if (err.message !== 'Unauthorized') {
+                tbody.innerHTML = `<tr><td colspan="7" class="loading-cell" style="color:var(--red)">
+                    <i class="fas fa-exclamation-triangle"></i> Failed to load watchlist.
+                </td></tr>`;
+            }
+            if (btn) btn.classList.remove('spinning');
+        });
+}
+
+function addStock() {
+    const sel  = document.getElementById('add-stock-select');
+    const sym  = sel.value;
+    const name = sel.options[sel.selectedIndex]?.dataset.name || sym;
+    if (!sym) { showToast('Please select a stock first.'); return; }
+
+    authFetch('/api/watchlist/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: sym, name })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.success) {
+            showToast(d.message || 'Added to watchlist');
+            sel.value = '';
+            loadWatchlist();
+        } else {
+            showToast(d.error || 'Could not add stock');
+        }
+    })
+    .catch(() => showToast('Network error. Please try again.'));
+}
+
+function removeStock(symbol, name, btn) {
+    authFetch('/api/watchlist/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.success) {
+            showToast(`${name} removed from watchlist`);
+            btn.closest('tr').remove();
+            const tbody = document.getElementById('watchlist-tbody');
+            if (!tbody.querySelector('tr.stock-row')) loadWatchlist();
+        } else {
+            showToast(d.error || 'Could not remove');
+        }
+    });
+}
+
+// ─── Chart Modal ─────────────────────────────────────────────────────────────
+function openChart(symbol, name) {
+    currentSymbol = symbol;
+    currentPeriod = '1mo';
+    document.querySelectorAll('.period-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.period === '1mo');
+    });
+    document.getElementById('modal-stock-name').textContent = name;
+    document.getElementById('modal-stock-symbol').textContent = symbol.replace('.NS','');
+    document.getElementById('chart-modal').style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    loadChart(symbol, currentPeriod);
+}
+
+function closeModal() {
+    document.getElementById('chart-modal').style.display = 'none';
+    document.body.style.overflow = '';
+    if (activeChart) { activeChart.destroy(); activeChart = null; }
+}
+
+function loadChart(symbol, period) {
+    document.getElementById('chart-loading').style.display = 'block';
+    document.getElementById('stock-chart-canvas').style.display = 'none';
+    document.getElementById('chart-stats').style.display = 'none';
+    if (activeChart) { activeChart.destroy(); activeChart = null; }
+
+    fetch(`/api/stock-chart/${encodeURIComponent(symbol)}?period=${period}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                document.getElementById('chart-loading').innerHTML =
+                    `<p style="color:var(--red)"><i class="fas fa-exclamation-triangle"></i> ${data.error}</p>`;
+                return;
+            }
+            document.getElementById('chart-loading').style.display = 'none';
+            const canvas = document.getElementById('stock-chart-canvas');
+            canvas.style.display = 'block';
+
+            const closes = data.close;
+            const first  = closes.find(v => v != null);
+            const last   = closes.filter(v => v != null).slice(-1)[0];
+            const isUp   = last >= first;
+            const lineColor = isUp ? '#10b981' : '#ef4444';
+            const fillColor = isUp ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)';
+
+            const datasets = [{
+                label: 'Price',
+                data: closes,
+                borderColor: lineColor,
+                backgroundColor: fillColor,
+                fill: true,
+                tension: 0.3,
+                pointRadius: 0,
+                borderWidth: 2,
+            }];
+            if (data.sma20 && data.sma20.some(v => v)) {
+                datasets.push({
+                    label: 'SMA 20',
+                    data: data.sma20,
+                    borderColor: '#6366f1',
+                    borderDash: [4, 4],
+                    pointRadius: 0,
+                    borderWidth: 1.5,
+                    fill: false,
+                    tension: 0.3,
+                });
+            }
+            if (data.sma50 && data.sma50.some(v => v)) {
+                datasets.push({
+                    label: 'SMA 50',
+                    data: data.sma50,
+                    borderColor: '#f59e0b',
+                    borderDash: [6, 3],
+                    pointRadius: 0,
+                    borderWidth: 1.5,
+                    fill: false,
+                    tension: 0.3,
+                });
+            }
+
+            activeChart = new Chart(canvas, {
+                type: 'line',
+                data: { labels: data.dates, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    interaction: { intersect: false, mode: 'index' },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 16 }
+                        },
+                        tooltip: {
+                            backgroundColor: '#111827',
+                            borderColor: '#1e293b',
+                            borderWidth: 1,
+                            titleColor: '#f1f5f9',
+                            bodyColor: '#94a3b8',
+                            callbacks: {
+                                label: ctx => ` ₹${ctx.parsed.y?.toLocaleString('en-IN') ?? '—'}`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: '#64748b', font: { size: 10 },
+                                maxTicksLimit: 8,
+                                maxRotation: 0,
+                            },
+                            grid: { color: 'rgba(30,41,59,0.6)' }
+                        },
+                        y: {
+                            position: 'right',
+                            ticks: {
+                                color: '#64748b', font: { size: 10 },
+                                callback: v => '₹' + v.toLocaleString('en-IN')
+                            },
+                            grid: { color: 'rgba(30,41,59,0.6)' }
+                        }
+                    }
+                }
+            });
+
+            // Stats row
+            const chgAbs = last - first;
+            const chgPct = ((chgAbs / first) * 100).toFixed(2);
+            const sign   = chgAbs >= 0 ? '+' : '';
+            const col    = chgAbs >= 0 ? 'var(--green)' : 'var(--red)';
+            document.getElementById('chart-stats').innerHTML = `
+                <span><strong style="color:var(--text-primary)">₹${last?.toLocaleString('en-IN')}</strong> <small style="color:var(--text-muted)">Latest</small></span>
+                <span style="color:${col}">${sign}₹${Math.abs(chgAbs).toLocaleString('en-IN')} (${sign}${chgPct}%)</span>
+                <span><small style="color:var(--text-muted)">${period.toUpperCase()} return</small></span>
+            `;
+            document.getElementById('chart-stats').style.display = 'flex';
+        })
+        .catch(() => {
+            document.getElementById('chart-loading').innerHTML =
+                '<p style="color:var(--red)"><i class="fas fa-exclamation-triangle"></i> Failed to load chart data.</p>';
+        });
+}
+</script>
+
+<style>
+/* ─── Modal ──────────────────────────────────────────────────────────────── */
+.modal-overlay {
+    position: fixed; inset: 0; z-index: 2000;
+    background: rgba(0,0,0,0.75); backdrop-filter: blur(6px);
+    display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.modal-box {
+    background: var(--bg-card); border: 1px solid var(--border-light);
+    border-radius: var(--radius); padding: 28px;
+    width: 100%; max-width: 760px; box-shadow: var(--shadow-lg);
+    animation: fadeUp 0.25s ease-out;
+}
+.modal-header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    margin-bottom: 16px;
+}
+.modal-header h3 { font-size: 18px; font-weight: 800; }
+.modal-close {
+    background: none; border: none; color: var(--text-muted);
+    font-size: 18px; cursor: pointer; padding: 4px 8px;
+    transition: color 0.2s;
+}
+.modal-close:hover { color: var(--red); }
+
+/* Period buttons */
+.chart-periods {
+    display: flex; gap: 6px; margin-bottom: 16px;
+}
+.period-btn {
+    padding: 5px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+    background: transparent; color: var(--text-muted);
+    font-family: var(--font); font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s;
+}
+.period-btn:hover { color: var(--text-primary); border-color: var(--border-light); }
+.period-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.chart-stat-row {
+    margin-top: 14px; padding: 12px 16px;
+    background: rgba(255,255,255,0.02); border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    display: flex; gap: 24px; align-items: center; font-size: 14px;
+}
+
+/* Remove btn */
+.remove-btn:hover { background: var(--red-bg) !important; }
+</style>
+{% endblock %}
